@@ -1,0 +1,75 @@
+package edu.buffalo.cse.cse486586.simpledht;
+
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.UnknownHostException;
+
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.app.Activity;
+import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
+import android.view.Menu;
+import android.widget.TextView;
+
+public class SimpleDhtActivity extends Activity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_simple_dht_main);
+        
+        TextView tv = (TextView) findViewById(R.id.textView1);
+        tv.setMovementMethod(new ScrollingMovementMethod());
+        findViewById(R.id.button3).setOnClickListener(
+                new OnTestClickListener(tv, getContentResolver()));
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.activity_simple_dht_main, menu);
+        return true;
+    }
+    
+    private class ClientTask extends AsyncTask<String, Void, Void> {
+
+        @Override
+        protected Void doInBackground(String... msgs) {
+            try {
+	            	//Get Sequence
+	            	Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+	                        Integer.parseInt(SEQUENCER_PORT));
+
+	            	try {
+	            			
+	    				BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+	    				writer.write(SEQUENCE_REQUEST + msgs[0]);
+	    				writer.flush();
+	    				writer.close();
+						
+	            		
+	    			} catch (IOException e) {
+	    				// TODO Auto-generated catch block
+	    				e.printStackTrace();
+	    				Log.e("Clienterror", e.getMessage());
+	    			}
+	                /*
+	                 * TODO: Fill in your client code that sends out a message.
+	                 */
+	                socket.close();
+            } catch (UnknownHostException e) {
+                Log.e(TAG, "ClientTask UnknownHostException");
+            } catch (IOException e) {
+                Log.e(TAG, "ClientTask socket IOException");
+            }
+
+            return null;
+        }
+    }
+
+
+}

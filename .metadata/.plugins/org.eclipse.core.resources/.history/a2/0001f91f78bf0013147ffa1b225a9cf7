@@ -1,0 +1,164 @@
+package edu.buffalo.cse.cse486586.simpledht;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.UnknownHostException;
+
+import edu.buffalo.cse.cse486586.groupmessenger.R;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
+import android.view.Menu;
+import android.widget.TextView;
+
+public class SimpleDhtActivity extends Activity {
+
+	static final String TAG = SimpleDhtActivity.class.getSimpleName();
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_simple_dht_main);
+        
+        TextView tv = (TextView) findViewById(R.id.textView1);
+        tv.setMovementMethod(new ScrollingMovementMethod());
+        findViewById(R.id.button3).setOnClickListener(
+                new OnTestClickListener(tv, getContentResolver()));
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.activity_simple_dht_main, menu);
+        return true;
+    }
+    
+    private class ServerTask extends AsyncTask<ServerSocket, String, Void> {
+
+        @Override
+        protected Void doInBackground(ServerSocket... sockets) {
+            ServerSocket serverSocket = sockets[0];
+            while (true)
+            {
+		        try {
+					Socket socket = serverSocket.accept();
+					BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+					String msg = reader.readLine();
+					reader.close();
+					socket.close();
+					if(msg.indexOf(SEQUENCE_REQUEST) == 0 && isSequencer)
+					{
+		            	//Multicast
+		                for (int i = 0; i < REMOTE_PORT.length; i++)
+		                {
+		                	String remotePort = REMOTE_PORT[i];
+			
+			                 socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+			                        Integer.parseInt(remotePort));
+			                
+			                try {
+			    				BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+			    				writer.write(msg.substring(2));
+			    				writer.flush();
+			    				writer.close();
+			    			} catch (IOException e) {
+			    				// TODO Auto-generated catch block
+			    				e.printStackTrace();
+			    			}
+			                /*
+			                 * TODO: Fill in your client code that sends out a message.
+			                 */
+			                socket.close();
+		                }
+
+					}
+					else
+					{
+						ContentResolver mContentResolver = getContentResolver();
+				        mUri = buildUri("content", "edu.buffalo.cse.cse486586.groupmessenger.provider");
+				        ContentValues cv = new ContentValues();
+			            cv.put(KEY_FIELD, SEQ_NO + "");
+			            cv.put(VALUE_FIELD, msg);
+				        mContentResolver.insert(mUri,  cv);
+				        
+				        publishProgress(msg + ", " + SEQ_NO);
+				        SEQ_NO = SEQ_NO + 1;
+					}
+					
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					Log.e("Servererror", e.getMessage());
+				}
+		        catch(Exception e) {
+		        	e.printStackTrace();
+		        	Log.e("error", e.getMessage());
+		        }
+            }
+            /*
+             * TODO: Fill in your server code that receives messages and passes them
+             * to onProgressUpdate().
+             */
+            //return null;
+        }
+
+        protected void onProgressUpdate(String...strings) {
+            /*
+             * The following code displays what is received in doInBackground().
+             */
+            String strReceived = strings[0].trim();
+            TextView textView = (TextView) findViewById(R.id.textView1);
+            textView.append(strReceived + "\n");
+            
+            return;
+        }
+    }
+
+    
+    private class ClientTask extends AsyncTask<String, Void, Void> {
+
+        @Override
+        protected Void doInBackground(String... msgs) {
+            try {
+	            	//Get Sequence
+	            	Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+	                        Integer.parseInt(SEQUENCER_PORT));
+
+	            	try {
+	            			
+	    				BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+	    				writer.write(SEQUENCE_REQUEST + msgs[0]);
+	    				writer.flush();
+	    				writer.close();
+						
+	            		
+	    			} catch (IOException e) {
+	    				// TODO Auto-generated catch block
+	    				e.printStackTrace();
+	    				Log.e("Clienterror", e.getMessage());
+	    			}
+	                /*
+	                 * TODO: Fill in your client code that sends out a message.
+	                 */
+	                socket.close();
+            } catch (UnknownHostException e) {
+                Log.e(TAG, "ClientTask UnknownHostException");
+            } catch (IOException e) {
+                Log.e(TAG, "ClientTask socket IOException");
+            }
+
+            return null;
+        }
+    }
+
+
+}

@@ -1,0 +1,132 @@
+package edu.buffalo.cse.cse486586.simpledht;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+import edu.buffalo.cse.cse486586.groupmessenger.GroupMessengerActivity.ServerTask;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
+import android.telephony.TelephonyManager;
+import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
+import android.view.Menu;
+import android.widget.TextView;
+
+public class SimpleDhtActivity extends Activity {
+
+	String portStr;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_simple_dht_main);
+        
+        TextView tv = (TextView) findViewById(R.id.textView1);
+        tv.setMovementMethod(new ScrollingMovementMethod());
+        findViewById(R.id.button3).setOnClickListener(
+                new OnTestClickListener(tv, getContentResolver()));
+        TelephonyManager tel = (TelephonyManager) this.getSystemService(Context.TELEPHONY_SERVICE);
+        portStr = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
+        final String myPort = String.valueOf((Integer.parseInt(portStr) * 2));
+        try {
+            /*
+             * Create a server socket as well as a thread (AsyncTask) that listens on the server
+             * port.
+             * 
+             * AsyncTask is a simplified thread construct that Android provides. Please make sure
+             * you know how it works by reading
+             * http://developer.android.com/reference/android/os/AsyncTask.html
+             */
+            ServerSocket serverSocket = new ServerSocket(SERVER_PORT);
+            new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
+        } catch (IOException e) {
+            Log.e(TAG, "Can't create a ServerSocket");
+            return;
+        }
+    }
+    private class ServerTask extends AsyncTask<ServerSocket, String, Void> {
+
+        @Override
+        protected Void doInBackground(ServerSocket... sockets) {
+            ServerSocket serverSocket = sockets[0];
+            while (true)
+            {
+		        try {
+					Socket socket = serverSocket.accept();
+					BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+					String msg = reader.readLine();
+					reader.close();
+					socket.close();
+					if(msg.indexOf(SEQUENCE_REQUEST) == 0 && isSequencer)
+					{
+		            	//Multicast
+		                for (int i = 0; i < REMOTE_PORT.length; i++)
+		                {
+		                	String remotePort = REMOTE_PORT[i];
+			
+			                 socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+			                        Integer.parseInt(remotePort));
+			                
+			                try {
+			    				BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+			    				writer.write(msg.substring(2));
+			    				writer.flush();
+			    				writer.close();
+			    			} catch (IOException e) {
+			    				// TODO Auto-generated catch block
+			    				e.printStackTrace();
+			    			}
+			                /*
+			                 * TODO: Fill in your client code that sends out a message.
+			                 */
+			                socket.close();
+		                }
+
+					}
+					else
+					{
+						ContentResolver mContentResolver = getContentResolver();
+				        mUri = buildUri("content", "edu.buffalo.cse.cse486586.groupmessenger.provider");
+				        ContentValues cv = new ContentValues();
+			            cv.put(KEY_FIELD, SEQ_NO + "");
+			            cv.put(VALUE_FIELD, msg);
+				        mContentResolver.insert(mUri,  cv);
+				        
+				        publishProgress(msg + ", " + SEQ_NO);
+				        SEQ_NO = SEQ_NO + 1;
+					}
+					
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					Log.e("Servererror", e.getMessage());
+				}
+		        catch(Exception e) {
+		        	e.printStackTrace();
+		        	Log.e("error", e.getMessage());
+		        }
+            }
+            /*
+             * TODO: Fill in your server code that receives messages and passes them
+             * to onProgressUpdate().
+             */
+            //return null;
+        }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.activity_simple_dht_main, menu);
+        return true;
+    }
+
+}
