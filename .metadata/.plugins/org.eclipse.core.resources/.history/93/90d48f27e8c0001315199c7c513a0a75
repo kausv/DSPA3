@@ -153,7 +153,7 @@ public class SimpleDhtProvider extends ContentProvider {
 	    	   	c.moveToPrevious();
 	    	   	return c;
     	   }
-           else if (!selection.equals("@"))
+           else
            {
         	   	Log.d(DEBUG,"QUERY_SENT:"+ "FROM " + myPort + " " + selection + " TO " + successor);
            		Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
@@ -327,7 +327,6 @@ public class SimpleDhtProvider extends ContentProvider {
 					if(msg.indexOf(QUERY_REQUEST) == 0)
 					{
 						String selection = msg.substring(msg.indexOf(":") + 1);
-						Log.d("DEBUG", "QUERY_RECEIVED:" + selection);
 						SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
 				        qb.setTables(TABLENAME);
 				        if(!(selection.equals("*")||selection.equals("@")))
