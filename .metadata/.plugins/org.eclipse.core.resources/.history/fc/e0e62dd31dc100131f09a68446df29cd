@@ -34,8 +34,6 @@ public class SimpleDhtProvider extends ContentProvider {
     static final String JOIN_RESPONSE = "RES_JOIN";
     static final String INSERT_REQUEST = "INSERT";
     static final String QUERY_REQUEST = "QUERY";
-    static final String DELETE_REQUEST = "DELETE";
-    
     static int successor = 0;
     static int myPort;
     
@@ -65,13 +63,9 @@ public class SimpleDhtProvider extends ContentProvider {
         		whereArgs = new String[] {String.valueOf(selection)};
 
         db.delete(TABLENAME, whereClause , whereArgs);
-        
+        c.close();
         if(myPort != successor && myPort != 0 && !selection.equals("@")) 
-        {
-        	new ClientTask().executeOnExecutor(
-        			AsyncTask.SERIAL_EXECUTOR, 
-        			DELETE_REQUEST + ":" + myPort + ":" + selection, successor * 2 + "");
-        }
+    		      
         
         
         return 0;
@@ -419,29 +413,6 @@ public class SimpleDhtProvider extends ContentProvider {
 				        }
 				        writer.write(serialized + "\n");
 				        writer.flush();
-					}
-					if(msg.indexOf(DELETE_REQUEST) == 0)
-					{
-						String port = msg.split(":")[1];
-						String selection = msg.split(":")[2];
-						if (!port.equals(myPort + ""))
-						{
-					        String whereClause = KEY_FIELD + "=?";
-
-					        String[] whereArgs = null;
-					        if(!(selection.equals("*")))
-					        		whereArgs = new String[] {String.valueOf(selection)};
-
-					        db.delete(TABLENAME, whereClause , whereArgs);
-					        
-					        if(myPort != successor && myPort != 0 && !selection.equals("@")) 
-					        {
-					        	new ClientTask().executeOnExecutor(
-					        			AsyncTask.SERIAL_EXECUTOR, 
-					        			DELETE_REQUEST + ":" + myPort + ":" + selection, successor * 2 + "");
-					        }
-					        
-						}
 					}
 					writer.close();
 					reader.close();

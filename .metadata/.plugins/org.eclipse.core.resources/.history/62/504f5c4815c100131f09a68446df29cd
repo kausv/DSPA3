@@ -34,8 +34,6 @@ public class SimpleDhtProvider extends ContentProvider {
     static final String JOIN_RESPONSE = "RES_JOIN";
     static final String INSERT_REQUEST = "INSERT";
     static final String QUERY_REQUEST = "QUERY";
-    static final String DELETE_REQUEST = "DELETE";
-    
     static int successor = 0;
     static int myPort;
     
@@ -56,25 +54,76 @@ public class SimpleDhtProvider extends ContentProvider {
     
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        Log.d("DEBUG", "DELETE: Selection:" + selection +" Args:" + selectionArgs);
-
-        String whereClause = KEY_FIELD + "=?";
-
-        String[] whereArgs = null;
-        if(!(selection.equals("*") || selection.equals("@")))
-        		whereArgs = new String[] {String.valueOf(selection)};
-
-        db.delete(TABLENAME, whereClause , whereArgs);
-        
-        if(myPort != successor && myPort != 0 && !selection.equals("@")) 
+    	Log.d(DEBUG,"QUERY:"+"Selection:"+selection);
+    	SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
+        qb.setTables(TABLENAME);
+        if(!(selection.equals("@") || selection.equals("*")))
+        	qb.appendWhere( KEY_FIELD + " = '" + selection + "'");
+        Cursor c = null;
+        try
         {
-        	new ClientTask().executeOnExecutor(
-        			AsyncTask.SERIAL_EXECUTOR, 
-        			DELETE_REQUEST + ":" + myPort + ":" + selection, successor * 2 + "");
+	         c = qb.query(db,	null,	null, null, 
+	                            null, null, sortOrder);
+        }
+        catch (Exception e)
+        {
+        	Log.e("error", e.getMessage());
+        }
+        String serialized = "";
+        try
+        {
+           if (c.getCount() > 0) // Here we try to move to the first record
+    	   {
+        	   while(!c.isLast())
+        	   {
+        		   c.moveToNext();
+        		   serialized+=c.getString(0) + ":" +c.getString(1) + ";";
+        	
+        	   }
+        	   
+    	   }
+           if(myPort != successor && myPort != 0 && !selection.equals("@")) 
+    		   if(selection.equals("*")|| c.getCount() == 0)
+	           {
+	        	   	Log.d(DEBUG,"QUERY_SENT:"+ "FROM " + myPort + " " + selection + " TO " + successor);
+	           		Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
+	       	   		String queryRequest = QUERY_REQUEST + " " + myPort + ":" + selection + "\n";
+	       	
+	       	   		try 
+	       	   		{
+	       	   			
+						BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+						writer.write(queryRequest + "\n");
+						writer.flush();
+						
+						
+						BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+						serialized += reader.readLine();
+		        		Log.d("DEBUG", "QUERY_RESULT in query" + serialized);
+		        		
+		        		writer.close();
+		        		reader.close();
+		        		socket.close();
+					} 
+	       	   		catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+						Log.e("Clienterror", e.getMessage());
+	       	   		}
+	       	   		
+		       	   	
+	           	}
+        } catch (UnknownHostException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		} catch (IOException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}finally { 
         }
         
-        
-        return 0;
+        c.close();
+       
     }
 
     @Override
@@ -419,29 +468,6 @@ public class SimpleDhtProvider extends ContentProvider {
 				        }
 				        writer.write(serialized + "\n");
 				        writer.flush();
-					}
-					if(msg.indexOf(DELETE_REQUEST) == 0)
-					{
-						String port = msg.split(":")[1];
-						String selection = msg.split(":")[2];
-						if (!port.equals(myPort + ""))
-						{
-					        String whereClause = KEY_FIELD + "=?";
-
-					        String[] whereArgs = null;
-					        if(!(selection.equals("*")))
-					        		whereArgs = new String[] {String.valueOf(selection)};
-
-					        db.delete(TABLENAME, whereClause , whereArgs);
-					        
-					        if(myPort != successor && myPort != 0 && !selection.equals("@")) 
-					        {
-					        	new ClientTask().executeOnExecutor(
-					        			AsyncTask.SERIAL_EXECUTOR, 
-					        			DELETE_REQUEST + ":" + myPort + ":" + selection, successor * 2 + "");
-					        }
-					        
-						}
 					}
 					writer.close();
 					reader.close();

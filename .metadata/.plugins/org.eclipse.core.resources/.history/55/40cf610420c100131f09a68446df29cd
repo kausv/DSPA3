@@ -429,7 +429,7 @@ public class SimpleDhtProvider extends ContentProvider {
 					        String whereClause = KEY_FIELD + "=?";
 
 					        String[] whereArgs = null;
-					        if(!(selection.equals("*")))
+					        if(!(selection.equals("*") || selection.equals("@")))
 					        		whereArgs = new String[] {String.valueOf(selection)};
 
 					        db.delete(TABLENAME, whereClause , whereArgs);
