@@ -1,0 +1,498 @@
+package edu.buffalo.cse.cse486586.simpledht;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.UnknownHostException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Formatter;
+
+import android.content.ContentProvider;
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.Cursor;
+import android.database.MatrixCursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
+import android.database.sqlite.SQLiteQueryBuilder;
+import android.net.Uri;
+import android.os.AsyncTask;
+import android.telephony.TelephonyManager;
+import android.util.Log;
+
+public class SimpleDhtProvider extends ContentProvider {
+	static final String TAG = SimpleDhtActivity.class.getSimpleName();
+    static final int SERVER_PORT = 10000;
+    static final String JOIN_SERVER = "5554";
+    static final String JOIN_REQUEST = "JOIN";
+    static final String JOIN_RESPONSE = "RES_JOIN";
+    static final String INSERT_REQUEST = "INSERT";
+    static final String QUERY_REQUEST = "QUERY";
+    static int successor = 0;
+    static int myPort;
+    
+    private MainDatabaseHelper mOpenHelper;
+	private static final String DBNAME = "mydb.db";
+	private static final String TABLENAME = "main";
+    private static final String KEY_FIELD = "key";
+    private static final String VALUE_FIELD = "value";
+    private static final String DEBUG = "DEBUG";
+    SQLiteDatabase db = null;
+    
+	private static final String SQL_CREATE_MAIN = "CREATE TABLE " +
+		    TABLENAME +                       // Table's name
+		    "(" +                           // The columns in the table
+		    " " + KEY_FIELD + " STRING, " +
+		    " " + VALUE_FIELD + " STRING )";
+
+    
+    @Override
+    public int delete(Uri uri, String selection, String[] selectionArgs) {
+        // TODO Auto-generated method stub
+        return 0;
+    }
+
+    @Override
+    public String getType(Uri uri) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public Uri insert(Uri uri, ContentValues values) {
+    	String key = values.getAsString(KEY_FIELD);
+    	String value = values.getAsString(VALUE_FIELD);
+    	Log.d(DEBUG,"INSERT:"+ key + ":" + value);
+    	if(successor == 0 || successor == myPort)
+    	{
+    		insertIntoDb(key, value);
+    	}
+    	else
+    	{
+	    	String flag = "0";
+			try {
+				flag = (genHash(myPort+"").compareTo(genHash(key)) > 0 ? "1" : "0");
+			} catch (NoSuchAlgorithmException e) {
+				// TODO Auto-generated catch block
+				Log.e("INSERT_ERROR", e.getMessage());
+			}
+	    	new ClientTask().executeOnExecutor(
+	    			AsyncTask.SERIAL_EXECUTOR, 
+	    			INSERT_REQUEST + flag + " " + key + ":" + value, successor + "");
+    	}
+        return uri;
+    }
+
+    @Override
+    public boolean onCreate() {
+    	// Database initialization
+    	mOpenHelper = new MainDatabaseHelper(
+	            getContext(),        // the application context
+	            DBNAME,              // the name of the database)
+	            null,                // uses the default SQLite cursor
+	            1                    // the version number
+	        );
+		db = mOpenHelper.getWritableDatabase();
+	    if(db == null)return false;      
+    	
+    	
+        // Socket Initialization 
+    	TelephonyManager tel = (TelephonyManager) this.getContext().getSystemService(Context.TELEPHONY_SERVICE);
+        String portStr = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
+        myPort = Integer.parseInt(portStr);
+        try {
+            /*
+             * Create a server socket as well as a thread (AsyncTask) that listens on the server
+             * port.
+             * 
+             * AsyncTask is a simplified thread construct that Android provides. Please make sure
+             * you know how it works by reading
+             * http://developer.android.com/reference/android/os/AsyncTask.html
+             */
+            ServerSocket serverSocket = new ServerSocket(SERVER_PORT);
+            new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
+            new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, JOIN_REQUEST + " " + myPort, JOIN_SERVER);
+        } catch (IOException e) {
+            Log.e(TAG, "Can't create a ServerSocket");
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
+            String sortOrder) {
+        
+    	Log.d(DEBUG,"QUERY:"+"Selection:"+selection);
+    	SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
+        qb.setTables(TABLENAME);
+        if(!(selection.equals("@") || selection.equals("*")))
+        	qb.appendWhere( KEY_FIELD + " = '" + selection + "'");
+        Cursor c = null;
+        try
+        {
+	         c = qb.query(db,	null,	null, null, 
+	                            null, null, sortOrder);
+        }
+        catch (Exception e)
+        {
+        	Log.e("error", e.getMessage());
+        }
+        String serialized = "";
+        try
+        {
+           if (c.getCount() > 0) // Here we try to move to the first record
+    	   {
+        	   while(!c.isLast())
+        	   {
+        		   c.moveToNext();
+        		   serialized+=c.getString(0) + ":" +c.getString(1) + ";";
+        	
+        	   }
+    	   }
+           else if (!selection.equals("@"))
+           {
+        	   	Log.d(DEBUG,"QUERY_SENT:"+ "FROM " + myPort + " " + selection + " TO " + successor);
+           		Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
+       	   		String queryRequest = QUERY_REQUEST + " " + myPort + ":" + selection + "\n";
+       	
+       	   		try 
+       	   		{
+       	   			
+					BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+					writer.write(queryRequest + "\n");
+					writer.flush();
+					
+					
+					BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+					serialized = reader.readLine();
+	        		Log.d("DEBUG", "QUERY_RESULT in query" + serialized);
+	        		
+	        		writer.close();
+	        		reader.close();
+	        		socket.close();
+	        		MatrixCursor matCursor = new MatrixCursor(new String[]{KEY_FIELD, VALUE_FIELD});
+	        		for(String keyValue : serialized.split(";"))
+	        		{
+	        			String key = keyValue.split(":")[0];
+	        			String value = keyValue.split(":")[1];
+	        			matCursor.addRow(new String[]{key,value});
+	        		}
+	        		return matCursor;
+				} 
+       	   		catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					Log.e("Clienterror", e.getMessage());
+       	   		}
+       	   		
+       	   		return c;
+           	}
+        } catch (UnknownHostException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		} catch (IOException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}finally { 
+           //c.close();
+        	
+        }
+        
+        return null;
+    }
+
+    @Override
+    public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
+        // TODO Auto-generated method stub
+        return 0;
+    }
+
+    private String genHash(String input) throws NoSuchAlgorithmException {
+        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+        byte[] sha1Hash = sha1.digest(input.getBytes());
+        Formatter formatter = new Formatter();
+        for (byte b : sha1Hash) {
+            formatter.format("%02x", b);
+        }
+        return formatter.toString();
+    }
+    
+    private class ServerTask extends AsyncTask<ServerSocket, String, Void> {
+
+        @Override
+        protected Void doInBackground(ServerSocket... sockets) {
+            ServerSocket serverSocket = sockets[0];
+            while (true)
+            {
+		        try {
+					Socket socket = serverSocket.accept();
+					BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+					
+					String msg = reader.readLine();
+					BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+					
+					String hash_successor = genHash(successor + "");
+					String hash_me = genHash(myPort + "");
+					Log.d(DEBUG,"RECEIVED:"+ "TO " + myPort + " " + msg);
+					if(msg.indexOf(JOIN_REQUEST) == 0)
+					{
+						if(successor == 0)
+						{
+							successor = Integer.parseInt(msg.substring(JOIN_REQUEST.length() + 1));
+							Log.d(DEBUG,"SUCCESSOR:"+ myPort + " > " + successor);
+							new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, JOIN_RESPONSE + " " + myPort, successor + "");
+						}
+						else
+						{
+							String hash_node = genHash(msg.substring(JOIN_REQUEST.length() + 1));
+							
+							if(hash_successor.compareTo(hash_me) > 0)
+							{
+								if(hash_node.compareTo(hash_me) > 0 && hash_successor.compareTo(hash_node) > 0)
+								{
+									int oldSuccessor = successor;
+									successor = Integer.parseInt(msg.substring(JOIN_REQUEST.length() + 1));
+									Log.d(DEBUG,"SUCCESSOR:"+ myPort + " > " + successor);
+									new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, JOIN_RESPONSE + " " + oldSuccessor, successor + "");
+								}
+								else
+								{
+									new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, msg, successor + "");
+								}
+							}
+							else
+							{
+								if(hash_node.compareTo(hash_me) > 0)
+								{
+									int oldSuccessor = successor;
+									successor = Integer.parseInt(msg.substring(JOIN_REQUEST.length() + 1));
+									Log.d(DEBUG,"SUCCESSOR:"+ myPort + " > " + successor);
+									new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, JOIN_RESPONSE + " " + oldSuccessor, successor + "");
+								}
+								else
+								{
+									if(hash_successor.compareTo(hash_node) > 0)
+									{
+										int oldSuccessor = successor;
+										successor = Integer.parseInt(msg.substring(JOIN_REQUEST.length() + 1));
+										Log.d(DEBUG,"SUCCESSOR:"+ myPort + " > " + successor);
+										new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, JOIN_RESPONSE + " " + oldSuccessor, successor + "");
+									}
+									else
+									{
+										new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, msg, successor + "");	
+									}
+								}
+								
+							}
+								
+						}
+					}
+					if(msg.indexOf(JOIN_RESPONSE) == 0)
+					{
+						successor = Integer.parseInt(msg.substring(JOIN_RESPONSE.length() + 1));
+						Log.d(DEBUG,"SUCCESSOR:"+ myPort + " > " + successor);
+					}
+					if(msg.indexOf(INSERT_REQUEST) == 0)
+					{
+						int cycle = Integer.parseInt(msg.substring(INSERT_REQUEST.length(), msg.indexOf(' ')));
+						String input = msg.substring(INSERT_REQUEST.length() + 2);
+						String key = input.substring(0, input.indexOf(':'));
+						String value = input.substring(input.indexOf(':') + 1);
+						Log.d(DEBUG, "Cycle:" + cycle + ", key:" + key + ", value:" + value);
+						String hash_obj = genHash(key);
+						
+						if(cycle == 0 && hash_me.compareTo(hash_obj) > 0)
+							insertIntoDb(key, value);
+						else
+							if(cycle == 3)
+								insertIntoDb(key, value);
+							else
+							{
+								if(hash_me.compareTo(hash_successor) > 0 && 
+										(hash_obj.compareTo(hash_me) > 0 || 
+												hash_successor.compareTo(hash_obj) > 0) )
+									new ClientTask().executeOnExecutor(
+							    			AsyncTask.SERIAL_EXECUTOR, 
+							    			INSERT_REQUEST 
+							    			+ "3" + " " + key + ":" + value, successor + "");
+								else
+									new ClientTask().executeOnExecutor(
+						    			AsyncTask.SERIAL_EXECUTOR, 
+						    			INSERT_REQUEST 
+						    			+ (genHash(myPort+"").compareTo(genHash(key)) > 0 ? "1" : "0") 
+						    			+ " " + key + ":" + value, successor + "");
+							}
+					}
+					if(msg.indexOf(QUERY_REQUEST) == 0)
+					{
+						String selection = msg.substring(msg.indexOf(":") + 1);
+						Log.d("DEBUG", "QUERY_RECEIVED:" + selection);
+						SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
+				        qb.setTables(TABLENAME);
+				        if(!(selection.equals("*")))
+				        	qb.appendWhere( KEY_FIELD + " = '" + selection + "'");
+				        Cursor c = null;
+				        try
+				        {
+					         c = qb.query(db,	null,	null, null, 
+					                            null, null, null);
+				        }
+				        catch (Exception e)
+				        {
+				        	Log.e("error", e.getMessage());
+				        }
+				       if (c == null)
+				           return null;
+				       String serialized = "";
+				        try{
+				        	
+				           if (c.getCount() > 0) // Here we try to move to the first record
+				           {
+				        	   while(!c.isLast())
+				        	   {
+				        		   c.moveToNext();
+				        		   serialized+=c.getString(0) + ":" +c.getString(1) + ";";
+				        	
+				        	   }
+				           }
+				           if(c.getCount() == 0 || selection.equals("*"))
+				           {
+				           		Socket clientSocket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
+				       	
+				       	   		try 
+				       	   		{
+				       	   			BufferedReader newReader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+				       	   			BufferedWriter newwriter = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+				       	   			newwriter.write(msg + "\n");
+				       	   			newwriter.flush();
+				       	   			
+									Log.d(DEBUG,"QUERY_SENT_SERVER:"+ "FROM " + myPort + " " + selection + " TO " + successor);
+					        		serialized += newReader.readLine();
+					        		Log.d("DEBUG", "QUERY_RESULT in server" + serialized);
+					        		
+					        		newReader.close();
+					        		newwriter.close();
+					        		clientSocket.close();
+									
+								} 
+				       	   		catch (IOException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+									Log.e("Clienterror", e.getMessage());
+				       	   		}
+				           }   
+				           c.close();
+				           Log.d(DEBUG,"QUERY_RESULT_SERIALIZED:" + c.getCount() +serialized);
+				        	   
+				        	   
+				           writer.write(serialized + "\n");
+				           writer.flush();
+								
+				           
+				           
+				        }finally { 
+				           //c.close();
+				        
+				        }
+						
+					}
+					writer.close();
+					reader.close();
+					socket.close();
+					
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					Log.e("Servererror", e.getMessage());
+				}
+		        catch(Exception e) {
+		        	e.printStackTrace();
+		        	Log.e("error", e.getMessage());
+		        }
+		        
+            }
+        }
+    }
+    private class ClientTask extends AsyncTask<String, Void, Void> {
+
+        @Override
+        protected Void doInBackground(String... msgs) {
+            try {
+            		Log.d(DEBUG,"SENT:"+ "FROM " + myPort + " " + msgs[0] + " TO " + msgs[1]);
+	            	Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+	                        Integer.parseInt(msgs[1]) * 2);
+	            	
+	            	try {
+	            			
+	    				BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+	    				writer.write(msgs[0]);
+	    				writer.flush();
+	    				writer.close();
+						
+	            		
+	    			} catch (IOException e) {
+	    				// TODO Auto-generated catch block
+	    				e.printStackTrace();
+	    				Log.e("Clienterror", e.getMessage());
+	    			}
+	                /*
+	                 * TODO: Fill in your client code that sends out a message.
+	                 */
+	                socket.close();
+            } catch (UnknownHostException e) {
+                Log.e(TAG, "ClientTask UnknownHostException");
+            } catch (IOException e) {
+                Log.e(TAG, "ClientTask socket IOException");
+            }
+
+            return null;
+        }
+    }
+
+    private void insertIntoDb(String key, String value)
+    {
+        ContentValues cv = new ContentValues();
+        cv.put(KEY_FIELD, key);
+        cv.put(VALUE_FIELD, value);
+        db.insert(TABLENAME, "", cv);
+    }
+    
+    protected static final class MainDatabaseHelper extends SQLiteOpenHelper {
+
+	    /*
+	     * Instantiates an open helper for the provider's SQLite data repository
+	     * Do not do database creation and upgrade here.
+	     */
+	    MainDatabaseHelper(Context context) {
+	        super(context, DBNAME, null, 1);
+	    }
+	    
+	    public MainDatabaseHelper(Context context, String DBNAME, Cursor cursor, int version) {
+	    	super(context, DBNAME, null, 1);
+		}
+	    /*
+	     * Creates the data repository. This is called when the provider attempts to open the
+	     * repository and SQLite reports that it doesn't exist.
+	     */
+	    public void onCreate(SQLiteDatabase db) {
+
+	        // Creates the main table
+	        db.execSQL(SQL_CREATE_MAIN);
+	    }
+
+		@Override
+		public void onUpgrade(SQLiteDatabase arg0, int arg1, int arg2) {
+			// TODO Auto-generated method stub
+			
+		}
+	}
+
+}

@@ -132,7 +132,7 @@ public class SimpleDhtProvider extends ContentProvider {
     	Log.d(DEBUG,"QUERY:"+"Selection:"+selection);
     	SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
         qb.setTables(TABLENAME);
-        if(!(selection.equals("*")||selection.equals("@")))
+        if(!(selection.equals("@") || selection.equals("*")))
         	qb.appendWhere( KEY_FIELD + " = '" + selection + "'");
         Cursor c = null;
         try
@@ -144,51 +144,50 @@ public class SimpleDhtProvider extends ContentProvider {
         {
         	Log.e("error", e.getMessage());
         }
+        String serialized = "";
         try
         {
            if (c.getCount() > 0) // Here we try to move to the first record
     	   {
-        	   c.moveToFirst();
-	    	   	Log.d(DEBUG,"QUERY_RESULT:"+"key:" + c.getString(0) + ", value:" +c.getString(1)); // Only assign string value if we moved to first record
-	    	   	c.moveToPrevious();
-	    	   	return c;
+        	   while(!c.isLast())
+        	   {
+        		   c.moveToNext();
+        		   serialized+=c.getString(0) + ":" +c.getString(1) + ";";
+        	
+        	   }
+        	   
     	   }
-           else if (!selection.equals("@"))
-           {
-        	   	Log.d(DEBUG,"QUERY_SENT:"+ "FROM " + myPort + " " + selection + " TO " + successor);
-           		Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
-       	   		String queryRequest = QUERY_REQUEST + " " + myPort + ":" + selection;
-       	
-       	   		try 
-       	   		{
-					BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-					writer.write(queryRequest);
-					writer.flush();
-					BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-	        		String line = reader.readLine();
-	        		Log.d("DEBUG", "QUERY_RESULT in query" + line);
-	        		writer.close();
-	        		reader.close();
-	        		socket.close();
-	        		MatrixCursor matCursor = new MatrixCursor(new String[]{KEY_FIELD, VALUE_FIELD});
-	        		for(String keyValue : line.split(";"))
-	        		{
-	        			String key = keyValue.split(":")[0];
-	        			String value = keyValue.split(":")[1];
-	        			matCursor.addRow(new String[]{key,value});
-	        		}
-	        		return matCursor;
-				} 
-       	   		catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-					Log.e("Clienterror", e.getMessage());
-       	   		}
-
-	    	   /*new ClientTask().executeOnExecutor(
-	    			AsyncTask.SERIAL_EXECUTOR, 
-	    			QUERY_REQUEST + " " + myPort + ":" + selection , successor + "");*/
-           	}
+           if(myPort != successor && myPort != 0 && !selection.equals("@")) 
+    		   if(selection.equals("*")|| c.getCount() == 0)
+	           {
+	        	   	Log.d(DEBUG,"QUERY_SENT:"+ "FROM " + myPort + " " + selection + " TO " + successor);
+	           		Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
+	       	   		String queryRequest = QUERY_REQUEST + " " + myPort + ":" + selection + "\n";
+	       	
+	       	   		try 
+	       	   		{
+	       	   			
+						BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+						writer.write(queryRequest + "\n");
+						writer.flush();
+						
+						
+						BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+						serialized += reader.readLine();
+		        		Log.d("DEBUG", "QUERY_RESULT in query" + serialized);
+		        		
+		        		writer.close();
+		        		reader.close();
+		        		socket.close();
+					} 
+	       	   		catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+						Log.e("Clienterror", e.getMessage());
+	       	   		}
+	       	   		
+		       	   	
+	           	}
         } catch (UnknownHostException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
@@ -196,11 +195,17 @@ public class SimpleDhtProvider extends ContentProvider {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}finally { 
-           //c.close();
-        	
         }
         
-        return null;
+        c.close();
+        MatrixCursor matCursor = new MatrixCursor(new String[]{KEY_FIELD, VALUE_FIELD});
+		for(String keyValue : serialized.split(";"))
+		{
+			String key = keyValue.split(":")[0];
+			String value = keyValue.split(":")[1];
+			matCursor.addRow(new String[]{key,value});
+		}
+		return matCursor;
     }
 
     @Override
@@ -229,7 +234,9 @@ public class SimpleDhtProvider extends ContentProvider {
 		        try {
 					Socket socket = serverSocket.accept();
 					BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+					
 					String msg = reader.readLine();
+					BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
 					
 					String hash_successor = genHash(successor + "");
 					String hash_me = genHash(myPort + "");
@@ -330,7 +337,7 @@ public class SimpleDhtProvider extends ContentProvider {
 						Log.d("DEBUG", "QUERY_RECEIVED:" + selection);
 						SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
 				        qb.setTables(TABLENAME);
-				        if(!(selection.equals("*")||selection.equals("@")))
+				        if(!(selection.equals("*")))
 				        	qb.appendWhere( KEY_FIELD + " = '" + selection + "'");
 				        Cursor c = null;
 				        try
@@ -344,56 +351,57 @@ public class SimpleDhtProvider extends ContentProvider {
 				        }
 				       if (c == null)
 				           return null;
-				        try{
-				        	
-				           if (c.getCount() > 0) // Here we try to move to the first record
-				           {
-				        	   String serialized = "";
-				        	   while(!c.isAfterLast())
-				        	   {
-				        		   c.moveToNext();
-				        		   serialized+=c.getString(0) + ":" +c.getString(1) + ";";
-				        		   c.moveToNext();
-				        	   }
-				        	   c.close();
-				        	   Log.d(DEBUG,"QUERY_RESULT_SERIALIZED:"+serialized);
-				        	   BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-								writer.write(serialized);
-								writer.flush();
-				           }
-				           else
-				           {
-				           		Socket clientSocket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
-				       	
-				       	   		try 
-				       	   		{
-									BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-									writer.write(msg);
-									writer.flush();
-									BufferedReader newReader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-					        		String line = reader.readLine();
-					        		Log.d("DEBUG", "QUERY_RESULT in server" + line);
-					        		writer.close();
-					        		reader.close();
-					        		clientSocket.close();
-					        		
-					        		writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-					        		writer.write(line);
-									writer.flush();
-									writer.close();
-								} 
-				       	   		catch (IOException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-									Log.e("Clienterror", e.getMessage());
-				       	   		}
-				           }
-				        }finally { 
-				           //c.close();
+				       String serialized = "";
+				       if(!msg.contains(myPort + ""))
+				        {
+				    	   try{
 				        
+				        	
+					           if (c.getCount() > 0) // Here we try to move to the first record
+					           {
+					        	   while(!c.isLast())
+					        	   {
+					        		   c.moveToNext();
+					        		   serialized+=c.getString(0) + ":" +c.getString(1) + ";";
+					        	   }
+					           }
+					           if(c.getCount() == 0 || selection.equals("*"))
+					           {
+					           		Socket clientSocket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}), successor* 2);
+					       	
+					       	   		try 
+					       	   		{
+					       	   			BufferedReader newReader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+					       	   			BufferedWriter newwriter = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+					       	   			newwriter.write(msg + "\n");
+					       	   			newwriter.flush();
+					       	   			
+										Log.d(DEBUG,"QUERY_SENT_SERVER:"+ "FROM " + myPort + " " + selection + " TO " + successor);
+						        		serialized += newReader.readLine();
+						        		Log.d("DEBUG", "QUERY_RESULT in server" + serialized);
+						        		
+						        		newReader.close();
+						        		newwriter.close();
+						        		clientSocket.close();
+										
+									} 
+					       	   		catch (IOException e) {
+										// TODO Auto-generated catch block
+										e.printStackTrace();
+										Log.e("Clienterror", e.getMessage());
+					       	   		}
+					           }   
+					           c.close();
+					           Log.d(DEBUG,"QUERY_RESULT_SERIALIZED:" + c.getCount() +serialized);
+					           
+					        }finally { 
+					           //c.close();
+					        }
 				        }
-						
+				        writer.write(serialized + "\n");
+				        writer.flush();
 					}
+					writer.close();
 					reader.close();
 					socket.close();
 					

@@ -1,0 +1,11 @@
+package server;
+
+import java.net.ServerSocket;
+
+public class Server {
+ public static void main()
+ {
+	 ServerSocket serverSocket = new ServerSocket(20000);
+	 
+ }
+}
